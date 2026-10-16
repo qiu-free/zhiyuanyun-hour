@@ -10,6 +10,10 @@ output/
 # 隐私检查用的真实名单哈希（本地文件，仓库只保留检查机制）
 privacy-blacklist.local.json
 
+# ===== 构建产物 =====
+# 网站由 GitHub Actions 自动构建，不需要提交（scripts/build-site.js 生成）
+dist/
+
 # ===== 日志与缓存 =====
 *.log
 .pnpm-store/

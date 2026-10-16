@@ -4,7 +4,29 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>志愿云时长录入助手</title>
-<link rel="stylesheet" href="/style.css">
+<!--
+  路径全部用相对写法（./ 而不是 /），且带 web/ 前缀。
+  GitHub Pages 部署在子路径下（例如 /zhiyuanyun-hour/），
+  写成 /style.css 会指向域名根目录而 404。
+
+  目录布局（本地服务与线上完全一致，见 scripts/build-site.js）：
+    index.html   web/app.js  web/localApi.js  web/style.css
+    core/*.js    vendor/xlsx.mjs
+
+  这样 web/localApi.js 里写的 ../core/pipeline.js 两边都能解析。
+
+  导入映射：core 里的模块写的是 `import XLSX from 'xlsx'`（裸模块名），
+  浏览器不认识这种写法，需要用 importmap 映射到实际文件。
+  Node 端不受影响，它直接从 node_modules 解析。
+-->
+<script type="importmap">
+{
+  "imports": {
+    "xlsx": "./vendor/xlsx.mjs"
+  }
+}
+</script>
+<link rel="stylesheet" href="./web/style.css">
 </head>
 <body>
 
@@ -247,6 +269,6 @@
   </div>
 </div>
 
-<script src="/app.js"></script>
+<script src="./web/app.js"></script>
 </body>
 </html>

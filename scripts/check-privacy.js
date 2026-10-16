@@ -73,7 +73,9 @@ function isFakeRange(id) {
   return /^11010120(0[1-9]|1[0-2])/.test(id) || /^13010220/.test(id);
 }
 
-const SKIP_DIRS = ['node_modules', '.pnpm', '.playwright', '.git', 'output'];
+// dist 是构建产物（xlsx 库里有大量形似身份证的数字串，会误报）；
+// 它由 src/ 生成，源头干净即可，所以不扫。
+const SKIP_DIRS = ['node_modules', '.pnpm', '.playwright', '.git', 'output', 'dist'];
 const TEXT_EXT = ['.md', '.js', '.mjs', '.html', '.css', '.json', '.txt', '.yml', '.yaml'];
 
 /** 递归收集待检查文件 */

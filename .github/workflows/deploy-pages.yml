@@ -1,0 +1,66 @@
+name: 部署网站到 GitHub Pages
+
+# 每次推送到 main 就自动构建并发布。
+# 你不需要在本地做任何事 —— 改完推送，一两分钟后线上就更新了。
+on:
+  push:
+    branches: [main]
+  # 也可以在 Actions 页面手动触发
+  workflow_dispatch:
+
+# GitHub Pages 需要的权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 只保留最新一次部署，避免排队
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 安装依赖
+        # 只需要 xlsx 一个包；用 npm ci 会依赖 lockfile 与 npm 的兼容性，
+        # 这里直接 install 更稳
+        run: npm install --no-audit --no-fund
+
+      - name: 跑自检
+        # 线上部署前先自检，避免把坏掉的版本推上去
+        run: |
+          node scripts/selftest-parseText.js
+          node scripts/selftest-split.js
+          node scripts/selftest-schedule.js
+          node scripts/selftest-multiproject.js
+          node scripts/selftest-static.js
+          node scripts/selftest-excel.js
+
+      - name: 构建静态网站
+        run: node scripts/build-site.js
+
+      - name: 上传产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 发布到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

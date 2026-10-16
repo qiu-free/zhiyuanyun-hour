@@ -2,11 +2,19 @@
 
 把名单（文本或 Excel）转成**可直接粘贴到志愿云后台的录入模板**。
 
-**两种使用方式：**
+**线上直接用（无需安装）：**
+
+👉 **https://qiu-free.github.io/zhiyuanyun-hour/**
+
+> 网页是**纯前端**的：所有计算都在你自己的浏览器里完成。
+> **没有任何服务器** —— 你输入的姓名和身份证号不会离开你的电脑，
+> 我们看不到，也不会有日志。打开页面就能用。
+
+**也可以在自己电脑上跑：**
 
 | 方式 | 命令 | 说明 |
 |---|---|---|
-| 🌐 **网站**（推荐） | `npm run web` → 打开 http://127.0.0.1:5180 | 图形界面，能实时校验、直接改错、看排期 |
+| 🌐 网站 | `npm run web` → 打开 http://127.0.0.1:5180 | 图形界面，能实时校验、直接改错、看排期 |
 | ⌨️ 命令行 | `npm run text -- --file 名单.txt --clip` | 适合脚本化、批量处理 |
 
 > **本工具不联网、不登录志愿云、不代替你提交。**
@@ -20,11 +28,15 @@
 
 ## 最快上手
 
+**在线版**：直接打开 https://qiu-free.github.io/zhiyuanyun-hour/
+
+**本地版**：
+
 ```bash
 git clone https://github.com/qiu-free/zhiyuanyun-hour.git
 cd zhiyuanyun-hour
 
-npm install          # 或 pnpm install
+npm install
 npm run web          # 启动本地服务
 ```
 
@@ -402,21 +414,25 @@ npm run schedule -- --file data/volunteers.xlsx
 ## 七、命令速查
 
 ```bash
-# —— 主路线：生成可粘贴文本 ——
+# —— 生成可粘贴文本 ——
 npm run validate -- --file data/volunteers.xlsx          # 校验（必做）
 npm run paste -- --file data/volunteers.xlsx --clip      # 生成并复制到剪贴板
 
 # 备注里有英文逗号时
 npm run paste -- --file data/volunteers.xlsx --fix --clip   # 自动替换逗号
 
+# —— 网站 ——
+npm run web                                            # 启动本地服务（http://127.0.0.1:5180）
+npm run site                                           # 构建静态网站到 dist/
+npm run site:preview                                   # 预览构建产物（http://127.0.0.1:5181）
+
 # —— 其他 ——
-npm run web                                            # 启动网站界面
 npm run schedule -- --file data/volunteers.xlsx         # 查看时间锁排期
 npm run template -- --file data/volunteers.xlsx         # 生成 xlsx 导入模板
 npm run sample                                         # 生成假数据示例
 
 # —— 自检 ——
-npm test                 # 全部自检（隐私 + 9 组共 600+ 项）
+npm test                 # 全部自检（隐私 + 10 组，643 项）
 npm run test:web         # 后端接口自检（需先 npm run web）
 npm run privacy          # 只跑隐私检查
 ```
@@ -425,7 +441,81 @@ npm run privacy          # 只跑隐私检查
 
 ---
 
-## 八、部署到 GitHub
+## 八、网站是怎么跑起来的
+
+### 纯前端，没有服务端
+
+```
+浏览器
+  ├── index.html
+  ├── web/app.js        界面逻辑
+  ├── web/localApi.js   四个接口的本地实现
+  ├── core/*.js         业务逻辑（与 CLI 共用同一份）
+  └── vendor/xlsx.mjs   读写 Excel
+```
+
+**为什么这样设计**：这个工具处理的身份证号是高度敏感的个人信息。
+如果做成传统的「浏览器 → 服务器」，使用者的数据就要发到服务器上，
+随之而来的是存储、日志、泄露风险，以及合规义务。
+
+纯前端方案下：
+
+- 数据只在使用者的浏览器内存里
+- 关掉页面就没了
+- 没有服务器要维护，也不用备案
+- 托管在 GitHub Pages 上，免费
+
+`core/pipeline.js` 是**服务器与浏览器共用的唯一真相来源**。
+`server/api.js` 只是给它包了一层 HTTP（供 CLI 和测试使用），
+所以线上和线下的计算结果完全一致 —— 这一点有 34 项自检专门盯着。
+
+### 构建与部署
+
+`.github/workflows/deploy-pages.yml` 会在每次推送到 `main` 时：
+
+1. 安装依赖
+2. 跑自检（**不通过就不会部署**）
+3. `node scripts/build-site.js` 构建 `dist/`
+4. 发布到 GitHub Pages
+
+本地想验证产物：
+
+```bash
+npm run site           # 构建
+npm run site:preview   # 预览（这是线上跑的那一份）
+```
+
+构建脚本会自检两件事，避免「本地能跑、线上不能用」：
+
+- `index.html` 引用的每个文件是否都存在
+- `core/` 里有没有模块依赖 `node:` 内置模块（浏览器加载会直接报错）
+
+### 目录布局必须两边一致
+
+线上部署在子路径下（`/zhiyuanyun-hour/`），所以：
+
+- 所有路径用相对写法（`./web/app.js`），**不能写 `/app.js`**
+- `core/` 的模块写的是 `import XLSX from 'xlsx'`（裸模块名），
+  浏览器不认识，靠 `index.html` 里的 importmap 映射到 `./vendor/xlsx.mjs`
+
+本地服务（`npm run web`）刻意提供**完全相同的布局**，
+这样不会出现「本地好使、线上 404」。
+
+### 一个已知问题：xlsx 的版本
+
+Excel 读写用的是 `xlsx@0.18.5`。这个版本有两个已知 CVE
+（原型污染、ReDoS，均在解析恶意文件时触发）。
+
+**为什么风险低**：纯前端运行，只处理使用者自己选的文件，
+不会影响服务器或他人；最坏情况是自己的浏览器标签页卡住。
+
+**如果想彻底解决**：SheetJS 官方已不在 npm 发布新版本，
+需要改用他们自建的 CDN 版本，或者换成 `exceljs` 之类的替代品。
+本项目暂未更换，因为这会牵动读取/写入的全部逻辑。
+
+---
+
+## 九、部署到 GitHub
 
 ### 会上传什么
 
@@ -448,6 +538,7 @@ package.json  pnpm-lock.yaml  README.md
 | `.env` | 本地配置 | 可能含补录原因 |
 | `privacy-blacklist.local.json` | 真实名单的哈希 | 见下 |
 | `node_modules/` | 依赖 | 别人 `npm install` 即可 |
+| `dist/` | 网站构建产物 | 由 GitHub Actions 自动生成 |
 | `.playwright/` | 浏览器 | 本项目已不用浏览器 |
 
 ### 关于 `privacy-blacklist.local.json`
@@ -463,6 +554,11 @@ package.json  pnpm-lock.yaml  README.md
 
 ### 别人克隆后怎么用
 
+**只想用网站**：直接打开 https://qiu-free.github.io/zhiyuanyun-hour/
+（或者把这个链接发给别人，不用装任何东西）
+
+**想在本地跑**：
+
 ```bash
 git clone https://github.com/qiu-free/zhiyuanyun-hour.git
 cd zhiyuanyun-hour
@@ -472,6 +568,20 @@ npm run web
 ```
 
 `npm test` 可以跑全部自检，确认环境正常。
+
+### 启用 GitHub Pages（只需做一次）
+
+推上去之后，去仓库页面：
+
+**Settings → Pages → Build and deployment → Source 选「GitHub Actions」**
+
+选好后，每次推送到 `main` 都会自动构建并发布。
+Actions 标签页能看到进度，绿勾表示部署成功。
+
+线上地址是：`https://<用户名>.github.io/<仓库名>/`
+
+> 注意：**Source 必须选「GitHub Actions」**，不要选「Deploy from a branch」——
+> 后者会去读仓库根目录，而网站产物在 `dist/` 里且由 Actions 生成。
 
 ### 如果你想 fork 后自己维护
 

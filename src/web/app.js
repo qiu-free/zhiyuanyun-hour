@@ -95,7 +95,36 @@ function askConfirm(message, { okText = '确定', cancelText = '取消', danger 
   });
 }
 
+/**
+ * 取浏览器端实现（core/pipeline.js 的浏览器包装）。
+ *
+ * 为什么用动态 import：
+ *   app.js 保持**普通脚本**（不是 ES module），因为自检脚本用
+ *   vm.runInContext 直接执行它，模块语法在那里跑不了。
+ *   动态 import() 在普通脚本里也能用，所以两边都满足。
+ *
+ * 拿到之后，所有计算都在本地完成 —— 静态站点没有服务端，
+ * 数据（含身份证号）不会离开使用者的浏览器。
+ */
+let _localApi = null;
+let _localApiFailed = false;
+async function getLocalApi() {
+  if (_localApi || _localApiFailed) return _localApi;
+  try {
+    _localApi = await import('./localApi.js');
+  } catch (e) {
+    // 例如宿主禁止动态 import，或文件缺失；退回 HTTP 方式
+    _localApiFailed = true;
+    console.warn('本地实现不可用，退回接口方式：', e && e.message);
+  }
+  return _localApi;
+}
+
 async function api(path, payload) {
+  const local = await getLocalApi();
+  if (local) return local.localApi(path, payload);
+
+  // ---- 兜底：走 HTTP（本地服务或自建后端）----
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -889,16 +918,23 @@ $('#btn-xlsx').addEventListener('click', async () => {
   const list = usableRecords();
   if (!list.length) return toast('没有可导出的记录');
   try {
-    const res = await fetch('/api/export/xlsx', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ records: list }),
-    });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      throw new Error(j.error || `HTTP ${res.status}`);
+    let blob;
+    const local = await getLocalApi();
+    if (local) {
+      // 静态站点：本地生成，不发请求
+      blob = local.exportXlsxBlob(list);
+    } else {
+      const res = await fetch('/api/export/xlsx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records: list }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      blob = await res.blob();
     }
-    const blob = await res.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `志愿云录入模板-${stamp()}.xlsx`;

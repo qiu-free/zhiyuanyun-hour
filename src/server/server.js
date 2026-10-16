@@ -21,6 +21,27 @@ import { handleApi } from './api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(__dirname, '..', 'web');
+const CORE_DIR = path.resolve(__dirname, '..', 'core');
+const ROOT_DIR = path.resolve(__dirname, '..', '..');
+
+/**
+ * 静态文件映射。
+ *
+ * 为什么要有 /web 这一层前缀：
+ *   网页现在是**纯前端**运行的（数据不离开浏览器），浏览器要能直接
+ *   import core/*.js。这要求本地开发的 URL 布局与部署到 GitHub Pages
+ *   之后的布局**完全一致**，否则会出现「本地能跑、线上不能用」。
+ *
+ * 两边统一的布局（scripts/build-site.js 产出同样的结构）：
+ *   index.html   web/app.js  web/localApi.js  web/style.css
+ *   core/*.js    vendor/xlsx.mjs
+ */
+function resolveStatic(rel) {
+  if (rel.startsWith('/core/')) return path.join(CORE_DIR, rel.slice('/core/'.length));
+  if (rel === '/vendor/xlsx.mjs') return path.join(ROOT_DIR, 'node_modules', 'xlsx', 'xlsx.mjs');
+  if (rel.startsWith('/web/')) return path.join(WEB_DIR, rel.slice('/web/'.length));
+  return path.join(WEB_DIR, '.' + rel);
+}
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 5180);
@@ -72,9 +93,10 @@ function serveStatic(res, urlPath) {
   let rel = decodeURIComponent(urlPath.split('?')[0]);
   if (rel === '/' || rel === '') rel = '/index.html';
 
-  // 规范化并确保仍在 WEB_DIR 内
-  const target = path.resolve(WEB_DIR, '.' + rel);
-  if (!target.startsWith(WEB_DIR)) {
+  // 规范化并确保仍在允许的目录内
+  const target = path.resolve(resolveStatic(rel));
+  const allowed = [WEB_DIR, CORE_DIR, path.join(ROOT_DIR, 'node_modules', 'xlsx')];
+  if (!allowed.some((dir) => target.startsWith(dir))) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('禁止访问');
     return;

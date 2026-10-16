@@ -314,7 +314,13 @@ check(js.includes('esc('), '输出经过转义（防 XSS）');
 // 后端安全
 const serverJs = fs.readFileSync(path.resolve('src/server/server.js'), 'utf8');
 check(serverJs.includes("'127.0.0.1'") || serverJs.includes('"127.0.0.1"'), '服务只监听本机');
-check(serverJs.includes('startsWith(WEB_DIR)'), '静态服务防目录穿越');
+// 静态文件用「白名单目录」判断，而不是只比对单一目录 ——
+// 因为现在还要放行 /core 和 /vendor。行为测试在 selftest-web.js 第 14 节。
+check(
+  /allowed\s*=\s*\[/.test(serverJs) && /allowed\.some\(/.test(serverJs) && /startsWith\(dir\)/.test(serverJs),
+  '静态服务防目录穿越（白名单目录）'
+);
+check(!/path\.join\([^)]*req\.url/.test(serverJs), '不直接拼接用户输入的路径');
 check(serverJs.includes('limitBytes'), '请求体有大小限制');
 
 console.log('');
