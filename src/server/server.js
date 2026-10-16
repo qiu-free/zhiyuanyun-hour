@@ -39,6 +39,7 @@ const ROOT_DIR = path.resolve(__dirname, '..', '..');
 function resolveStatic(rel) {
   if (rel.startsWith('/core/')) return path.join(CORE_DIR, rel.slice('/core/'.length));
   if (rel === '/vendor/xlsx.mjs') return path.join(ROOT_DIR, 'node_modules', 'xlsx', 'xlsx.mjs');
+  if (rel === '/vendor/xlsx-default.js') return path.join(ROOT_DIR, 'src', 'vendor', 'xlsx-default.js');
   if (rel.startsWith('/web/')) return path.join(WEB_DIR, rel.slice('/web/'.length));
   return path.join(WEB_DIR, '.' + rel);
 }
@@ -95,7 +96,12 @@ function serveStatic(res, urlPath) {
 
   // 规范化并确保仍在允许的目录内
   const target = path.resolve(resolveStatic(rel));
-  const allowed = [WEB_DIR, CORE_DIR, path.join(ROOT_DIR, 'node_modules', 'xlsx')];
+  const allowed = [
+    WEB_DIR,
+    CORE_DIR,
+    path.join(ROOT_DIR, 'node_modules', 'xlsx'),
+    path.join(ROOT_DIR, 'src', 'vendor'),
+  ];
   if (!allowed.some((dir) => target.startsWith(dir))) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('禁止访问');

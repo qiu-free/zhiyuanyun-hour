@@ -153,6 +153,81 @@ console.log('\n=== 6. 未知接口要报错而不是静默返回 ===');
   check(threw, '未知接口抛错');
 }
 
+// ============================================================
+console.log('\n=== 7. xlsx 在浏览器里的默认导出（真故障回归）===');
+{
+  // 这段对应一次真实故障：线上页面能打开但一点就失败。
+  // 原因：代码写 `import XLSX from 'xlsx'`，Node 走 CJS 有 default，
+  // 而浏览器里 importmap 指向的 xlsx.mjs 只有具名导出，
+  // 于是报 "does not provide an export named 'default'"，
+  // 整个本地实现加载失败、退回 HTTP、404。
+  // 修法是加一个提供 default 的垫片。
+
+  const shim = fs.readFileSync(path.resolve('src/vendor/xlsx-default.js'), 'utf8');
+  check(/export\s+default/.test(shim), '垫片提供默认导出');
+  check(/from\s+['"]\.\/xlsx\.mjs['"]/.test(shim), '垫片引用同目录的 xlsx.mjs');
+
+  // 确认 xlsx.mjs 真的没有 default —— 这正是垫片存在的理由。
+  // 万一将来 SheetJS 补上 default，这条会失败，提醒我们垫片可以去掉。
+  const mjsPath = path.resolve('node_modules/xlsx/xlsx.mjs');
+  if (fs.existsSync(mjsPath)) {
+    const mjs = fs.readFileSync(mjsPath, 'utf8');
+    check(!/^\s*export\s+default/m.test(mjs), 'xlsx.mjs 确实没有默认导出（所以垫片必需）');
+    // 具名导出要有 utils，垫片才能正常当模块对象用
+    check(/export\s*\{[^}]*\butils\b/.test(mjs) || /export\s+.*\butils\b/.test(mjs),
+      'xlsx.mjs 导出了 utils（垫片才能当 XLSX 用）');
+  } else {
+    check(false, '找不到 node_modules/xlsx/xlsx.mjs，请先 npm install');
+  }
+
+  // index.html 的 importmap 必须指向垫片
+  const html = fs.readFileSync(path.resolve('src/web/index.html'), 'utf8');
+  check(html.includes('"xlsx": "./vendor/xlsx-default.js"'),
+    'importmap 指向垫片');
+  check(!html.includes('"xlsx": "./vendor/xlsx.mjs"'),
+    'importmap 没有直接指向 xlsx.mjs（那会缺 default）');
+}
+
+// ============================================================
+console.log('\n=== 8. 所有 core 模块都能在浏览器里加载 ===');
+{
+  // 静态检查依赖图：从浏览器真正的入口出发（localApi.js），
+  // 沿 import 链走一遍，任何节点都不能依赖 node: 内置模块，
+  // 也不能引用裸模块名（除了 xlsx —— 它由 importmap 提供）。
+  //
+  // 注意入口是 localApi.js 而不是「core 下所有文件」：
+  // core/excel.js 是 Node 专用的（读本地文件），本来就不该出现在
+  // 浏览器依赖图里，把它当起点会误报。
+  const seen = new Set();
+  const bad = [];
+  const queue = [path.resolve('src/web/localApi.js')];
+
+  while (queue.length) {
+    const f = queue.pop();
+    if (seen.has(f) || !fs.existsSync(f)) continue;
+    seen.add(f);
+    const src = fs.readFileSync(f, 'utf8');
+    for (const m of src.matchAll(/from\s+['"]([^'"]+)['"]/g)) {
+      const spec = m[1];
+      if (spec.startsWith('node:')) { bad.push(`${path.basename(f)} → ${spec}`); continue; }
+      if (spec.startsWith('.')) {
+        let t = path.resolve(path.dirname(f), spec);
+        if (!fs.existsSync(t)) t += '.js';
+        queue.push(t);
+      } else if (spec !== 'xlsx') {
+        bad.push(`${path.basename(f)} → 裸模块 ${spec}`);
+      }
+    }
+  }
+  check(bad.length === 0, `浏览器依赖图共 ${seen.size} 个模块，全部可加载`, bad.join('; '));
+  // excel.js 是 Node 专用，必须不在浏览器依赖图里
+  check(![...seen].some((f) => path.basename(f) === 'excel.js'),
+    'excel.js（Node 专用）不在浏览器依赖图里');
+  // 确认真的走到了 pipeline 和 xlsx 使用方，避免图是空的导致假通过
+  check([...seen].some((f) => path.basename(f) === 'pipeline.js'), '依赖图包含 pipeline.js');
+  check([...seen].some((f) => path.basename(f) === 'excelBuffer.js'), '依赖图包含 excelBuffer.js（用到 xlsx）');
+}
+
 console.log('');
 console.log(`共 ${pass + fail} 项：通过 ${pass}，失败 ${fail}`);
 process.exit(fail ? 1 : 0);

@@ -15,14 +15,16 @@
 
   这样 web/localApi.js 里写的 ../core/pipeline.js 两边都能解析。
 
-  导入映射：core 里的模块写的是 `import XLSX from 'xlsx'`（裸模块名），
-  浏览器不认识这种写法，需要用 importmap 映射到实际文件。
-  Node 端不受影响，它直接从 node_modules 解析。
+  导入映射：core 里的模块写的是 `import XLSX from 'xlsx'`（裸模块名 + 默认导入），
+  浏览器不认识裸模块名，而且 xlsx.mjs 没有默认导出。
+  所以映射到 xlsx-default.js 这个垫片（它提供 default），
+  垫片内部再引真正的 xlsx.mjs。
+  Node 端不受影响，它直接从 node_modules 解析 CommonJS 版本。
 -->
 <script type="importmap">
 {
   "imports": {
-    "xlsx": "./vendor/xlsx.mjs"
+    "xlsx": "./vendor/xlsx-default.js"
   }
 }
 </script>

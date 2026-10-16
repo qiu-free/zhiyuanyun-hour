@@ -95,6 +95,15 @@ copyFile(xlsxSrc, path.join(DIST, 'vendor', 'xlsx.mjs'));
 const xlsxKb = Math.round(fs.statSync(xlsxSrc).size / 1024);
 console.log(`  vendor/xlsx.mjs  ${xlsxKb} KB`);
 
+// 垫片：xlsx.mjs 只有具名导出，而项目里写的是默认导入。
+// 浏览器直接用会报 "does not provide an export named 'default'"，
+// 导致本地实现整个加载失败。垫片补上 default。
+copyFile(
+  path.join(ROOT, 'src', 'vendor', 'xlsx-default.js'),
+  path.join(DIST, 'vendor', 'xlsx-default.js')
+);
+console.log('  vendor/xlsx-default.js  (默认导出垫片)');
+
 // ---------- 5. GitHub Pages：不要跑 Jekyll ----------
 fs.writeFileSync(path.join(DIST, '.nojekyll'), '');
 console.log('  .nojekyll');
@@ -114,7 +123,10 @@ const html = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
 const refs = [
   ...html.matchAll(/(?:src|href)="(\.\/[^"]+)"/g),
 ].map((m) => m[1]);
-refs.push('./vendor/xlsx.mjs');   // 来自 importmap
+// importmap 里的目标也要存在（浏览器加载模块时才会去取，构建时先查出来）
+for (const m of html.matchAll(/"([^"]*xlsx[^"]*\.js)"/g)) {
+  refs.push('./' + m[1].replace(/^\.\//, ''));
+}
 
 let bad = 0;
 for (const ref of refs) {
@@ -151,7 +163,12 @@ if (/^#\s|\|.*\|.*\|/m.test(html.slice(0, 500)) || html.includes('npm run paste'
 // ---------- 8. 自检：模块的 import 链是否都能解析 ----------
 console.log('\n自检：模块 import 链…');
 const seen = new Set();
-const queue = [path.join(DIST, 'web', 'app.js'), path.join(DIST, 'web', 'localApi.js')];
+const queue = [
+  path.join(DIST, 'web', 'app.js'),
+  path.join(DIST, 'web', 'localApi.js'),
+  // 垫片也要查：它内部引 ./xlsx.mjs，漏了就会在浏览器里 404
+  path.join(DIST, 'vendor', 'xlsx-default.js'),
+];
 let importsChecked = 0;
 let importsBad = 0;
 
