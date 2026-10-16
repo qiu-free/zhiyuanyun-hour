@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>志愿云时长录入助手</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <h1>志愿云时长录入助手</h1>
+    <p class="sub">文本 / Excel → 可直接粘贴的录入模板　·　全部在本机处理，不上传、不登录</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ============ 步骤 1：输入 ============ -->
+  <section class="card" id="sec-input">
+    <div class="card-head">
+      <span class="step">1</span>
+      <h2>把名单给我</h2>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="text">粘贴文本</button>
+      <button class="tab" data-tab="file">上传 Excel</button>
+    </div>
+
+    <!-- 文本输入 -->
+    <div class="tabpane active" id="pane-text">
+      <p class="hint">
+        格式随意。空格、逗号、竖线、带标签，混着来都行。
+        下面三种写法只是示例（<strong>数据是假的</strong>）：
+      </p>
+      <pre class="sample">张三 2023000001 110101200501010017 8
+李四，2023000002，110101200502020022，8小时
+姓名：王五 学号：2023000003 身份证：110101200503030038 时长：8</pre>
+      <textarea id="text-input" rows="10" placeholder="在这里粘贴名单…"></textarea>
+    </div>
+
+    <!-- 文件上传 -->
+    <div class="tabpane" id="pane-file">
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="file-input" accept=".xlsx,.xls,.csv" hidden>
+        <p class="dz-main">把 Excel 拖到这里，或 <button type="button" class="link" id="pick-file">选择文件</button></p>
+        <p class="dz-sub">需要包含列：姓名、身份证号、志愿时长（备注与学号可选）</p>
+      </div>
+      <p class="fileinfo" id="file-info">还没有选择文件</p>
+      <p class="fileinfo-actions">
+        <button type="button" class="btn btn-ghost btn-sm hidden" id="file-clear">取消选择</button>
+      </p>
+    </div>
+
+    <!-- 补录原因 -->
+    <div class="field">
+      <label for="reason-input">
+        统一补录原因
+        <span class="badge badge-optional">表格/文本里已有备注时可不填</span>
+      </label>
+      <input type="text" id="reason-input" placeholder="例如：暑期迎新志愿服务活动">
+      <p class="field-hint">
+        这是系统必填项，会写进志愿者档案。留空且名单里也没写备注时，
+        这些行会被标为「待报备」——程序不会替你编一个原因。
+      </p>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="btn-parse">开始处理</button>
+    </div>
+  </section>
+
+  <!-- ============ 步骤 2：结果 ============ -->
+  <section class="card hidden" id="sec-result">
+    <div class="card-head">
+      <span class="step">2</span>
+      <h2>核对与修正</h2>
+      <span class="spacer"></span>
+      <button class="btn btn-primary btn-sm" id="btn-copy-top">复制粘贴文本</button>
+      <button class="btn btn-ghost btn-sm" id="btn-back">重新输入</button>
+      <button class="btn btn-ghost btn-sm" id="btn-reset">清空全部</button>
+    </div>
+
+    <!-- 统计 -->
+    <div class="stats" id="stats"></div>
+
+    <!-- 提示条 -->
+    <div id="notices"></div>
+
+    <!-- 表格说明：三个状态的含义要讲清楚，不能让用户翻文档 -->
+    <p class="hint table-legend">
+      <span class="lg lg-error">红底</span>＝数据有错，需你修改。
+      <span class="lg lg-missing">黄底</span>＝缺补录原因，需问发起人。
+      <span class="lg lg-warn">蓝底</span>＝能录入，但建议确认。
+      行号是你原文/Excel 的实际行号，跳号说明该行已被自动跳过。
+    </p>
+
+    <!-- 结果表 -->
+    <div class="table-wrap">
+      <table id="result-table">
+        <thead>
+          <tr>
+            <th class="col-no">原文行号</th>
+            <th class="col-name">姓名</th>
+            <th class="col-id">身份证号</th>
+            <th class="col-hours">时长</th>
+            <th class="col-remark">备注 / 补录原因</th>
+            <th class="col-status">状态</th>
+            <th class="col-act"><span class="sr-only">操作</span></th>
+          </tr>
+        </thead>
+        <tbody id="result-body"></tbody>
+      </table>
+    </div>
+
+    <!-- 跳过的行 -->
+    <details class="skipped hidden" id="skipped-box">
+      <summary id="skipped-summary">已跳过的行</summary>
+      <ul id="skipped-list"></ul>
+    </details>
+
+    <!-- 次要入口：分批 / 分流 / 排期 / 规则（导航动作，不放在导出组里） -->
+    <div class="sub-actions">
+      <button class="btn btn-ghost btn-sm" id="btn-multi">→ 换项目分流（不用等）</button>
+      <button class="btn btn-ghost btn-sm" id="btn-batch">→ 生成分批录入文本</button>
+      <button class="btn btn-ghost btn-sm" id="btn-schedule">→ 查看时间锁排期</button>
+      <button class="btn btn-ghost btn-sm" id="btn-rules">→ 看录入规则</button>
+    </div>
+
+    <!-- ============ 录入规则说明 ============ -->
+    <section class="rules hidden" id="rules-box">
+      <h3 class="sub-title">志愿时长录入规则</h3>
+      <div class="rule-grid">
+        <div class="rule">
+          <div class="rule-k">单次上限</div>
+          <div class="rule-v">50 小时</div>
+          <p>一次最多录 50 小时。超过这个数，<strong>分多次录</strong>。</p>
+        </div>
+        <div class="rule">
+          <div class="rule-k">等待时间</div>
+          <div class="rule-v">24 ~ 120 小时</div>
+          <p>录完后同一人同一项目要等系统解锁才能再录，<strong>不同人互不影响</strong>。</p>
+        </div>
+        <div class="rule">
+          <div class="rule-k">最小粒度</div>
+          <div class="rule-v">0.1 小时</div>
+          <p>可以录 8.5 小时这种小数。</p>
+        </div>
+      </div>
+
+      <h4 class="sub-title">录入多少 → 要等多久</h4>
+      <table class="lock-table">
+        <thead><tr><th>单次录入时长</th><th>下次可录入需等待</th><th>举例</th></tr></thead>
+        <tbody>
+          <tr><td>≤ 10 小时</td><td>24 小时（1 天）</td><td>录 8 小时 → 明天可再录</td></tr>
+          <tr><td>10 ~ 20 小时</td><td>48 小时（2 天）</td><td>录 15 小时 → 后天可再录</td></tr>
+          <tr><td>20 ~ 30 小时</td><td>72 小时（3 天）</td><td>录 25 小时 → 3 天后可再录</td></tr>
+          <tr><td>30 ~ 40 小时</td><td>96 小时（4 天）</td><td>录 35 小时 → 4 天后可再录</td></tr>
+          <tr><td>40 ~ 50 小时</td><td>120 小时（5 天）</td><td>录 50 小时 → 5 天后可再录</td></tr>
+        </tbody>
+      </table>
+
+      <h4 class="sub-title">超过 50 小时怎么办</h4>
+      <p class="hint">
+        不是不能录，是<b>分几次录</b>。程序会自动算好怎么分。举几个例子：
+      </p>
+      <table class="lock-table">
+        <thead><tr><th>某人总时长</th><th>怎么分</th><th>录完约需</th></tr></thead>
+        <tbody>
+          <tr><td>40 小时</td><td>一次录完</td><td>—</td></tr>
+          <tr><td>50 小时</td><td>一次录完（正好到上限）</td><td>—</td></tr>
+          <tr><td>51 小时</td><td>50 + 1</td><td>5 天后</td></tr>
+          <tr><td>80 小时</td><td>50 + 30</td><td>5 天后</td></tr>
+          <tr><td>100 小时</td><td>50 + 50</td><td>5 天后</td></tr>
+          <tr><td>120 小时</td><td>50 + 50 + 20</td><td>10 天后</td></tr>
+        </tbody>
+      </table>
+      <p class="hint">
+        规律：每次都尽量录满 50。录得越多等得越久，但批次更少，
+        总体等待时间反倒最短——程序默认按这个方式分。
+      </p>
+    </section>
+
+    <!-- ============ 分批录入面板 ============ -->
+    <section class="hidden" id="batch-panel"></section>
+
+    <!-- ============ 换项目分流面板 ============ -->
+    <section class="hidden" id="multi-panel"></section>
+
+    <!-- ============ 步骤 3：导出 ============ -->
+    <h3 class="section-title">导出</h3>
+
+    <div class="export-grid">
+      <button class="btn btn-primary" id="btn-copy">复制粘贴文本</button>
+      <button class="btn" id="btn-txt">下载 .txt</button>
+      <button class="btn" id="btn-xlsx">下载 Excel</button>
+    </div>
+
+    <div class="output-box">
+      <div class="output-head">
+        <strong>粘贴文本预览</strong>
+        <span class="output-meta" id="output-meta"></span>
+      </div>
+      <pre id="output-text"></pre>
+    </div>
+  </section>
+
+  <!-- ============ 排期面板 ============ -->
+  <section class="card hidden" id="sec-schedule">
+    <div class="card-head">
+      <span class="step">4</span>
+      <h2>时间锁排期</h2>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-sm" id="btn-close-schedule">关闭</button>
+    </div>
+    <p class="hint">
+      系统限制：单次最多 50 小时，且录入后需等待一段时间才能再录。
+      下面是按此规则算出的分批安排。
+    </p>
+    <div class="strategy-switch">
+      <label><input type="radio" name="strategy" value="few" checked> 每批尽量大（等待时间最短）</label>
+      <label><input type="radio" name="strategy" value="fast"> 每批 ≤10 小时（批次多）</label>
+    </div>
+    <div id="schedule-body"></div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p>本工具不联网、不登录志愿云、不代替你提交。所有数据只在你本机内存里处理。</p>
+  </div>
+</footer>
+
+<div id="toast" class="toast"></div>
+
+<!-- 页内确认框：不用 window.confirm（嵌入页面里会被直接拒绝，表现成"点了没反应"） -->
+<div id="confirm" class="confirm hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-msg">
+  <div class="confirm-box">
+    <p id="confirm-msg" class="confirm-msg"></p>
+    <div class="confirm-actions">
+      <button type="button" class="btn btn-sm" id="confirm-cancel">取消</button>
+      <button type="button" class="btn btn-sm btn-primary" id="confirm-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

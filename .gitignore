@@ -1,0 +1,28 @@
+# ===== 依赖 =====
+node_modules/
+
+# ===== 敏感数据：绝对不要提交 =====
+# 真实名单表格、生成的结果、环境变量
+data/
+output/
+.env
+
+# 隐私检查用的真实名单哈希（本地文件，仓库只保留检查机制）
+privacy-blacklist.local.json
+
+# ===== 日志与缓存 =====
+*.log
+.pnpm-store/
+.cache/
+*.tsbuildinfo
+
+# ===== 浏览器自动化产物 =====
+.playwright/
+browser-state/
+
+# ===== 编辑器 / 系统 =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

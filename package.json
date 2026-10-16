@@ -1,0 +1,27 @@
+{
+  "name": "zhiyuanyun-hour",
+  "version": "1.0.0",
+  "private": true,
+  "description": "志愿云（全国志愿服务信息系统）学院项目时长录入助手：文本/Excel → 可粘贴的录入模板。本工具只生成文本，不登录、不提交。",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "web": "node src/server/server.js",
+    "text": "node src/cli/fromtext.js",
+    "validate": "node src/cli/validate.js",
+    "paste": "node src/cli/paste.js",
+    "schedule": "node src/cli/schedule.js",
+    "template": "node src/cli/template.js",
+    "sample": "node scripts/make-sample.js",
+    "privacy": "node scripts/check-privacy.js",
+    "test": "node scripts/check-privacy.js && node scripts/selftest-excel.js && node scripts/selftest-parseText.js && node scripts/selftest-split.js && node scripts/selftest-paste.js && node scripts/selftest-schedule.js && node scripts/selftest-multiproject.js && node scripts/selftest-frontend.js && node scripts/selftest-pageload.js",
+    "test:web": "node scripts/selftest-web.js"
+  },
+  "dependencies": {
+    "node-forge": "^1.3.1",
+    "xlsx": "^0.18.5",
+    "dotenv": "^16.4.7"
+  }
+}

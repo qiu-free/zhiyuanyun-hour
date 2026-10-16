@@ -1,0 +1,18 @@
+# 统一换行符为 LF，避免 Windows/macOS 之间产生大量无意义的 diff
+* text=auto eol=lf
+
+# 这些文件必须是 LF —— 工具输出的粘贴文本不允许有 \r
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.txt   text eol=lf
+*.yml   text eol=lf
+
+# 二进制文件不要做任何转换
+*.xlsx  binary
+*.png   binary
+*.jpg   binary
+*.zip   binary
