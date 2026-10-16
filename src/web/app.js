@@ -323,6 +323,15 @@ $('#btn-parse').addEventListener('click', async () => {
 
     renderAll();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // 处理完自动复制到剪贴板。
+    // 这个工具的出口就是「把文本贴到志愿云后台」，所以直接放好剪贴板，
+    // 省掉一次点击。注意必须在 renderAll() 之后 —— 兜底路径要选中页面上的元素。
+    // 顺带一个好处：点击「开始处理」本身就是用户手势，
+    // 剪贴板 API 需要的手势授权此时仍然有效。
+    if (state.records.some((r) => r.usable)) {
+      await doCopy({ silent: true });
+    }
   } catch (e) {
     toast(e.message, 3600);
   } finally {
@@ -872,30 +881,84 @@ function outputText() {
     .join('\n');
 }
 
-async function doCopy() {
-  const list = usableRecords();
-  if (!list.length) return toast('没有可复制的记录');
-
-  try {
-    await navigator.clipboard.writeText(outputText());
-    toast(`已复制 ${list.length} 条，到志愿云后台粘贴即可`);
-  } catch {
-    // 剪贴板 API 在非安全上下文可能不可用，退回到手动选择
-    const pre = $('#output-text');
-    const range = document.createRange();
-    range.selectNodeContents(pre);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    pre.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    toast('已帮你选中文本，按 Ctrl+C 复制', 3200);
+/**
+ * 把文本放进剪贴板。返回 true 表示真的复制成功了。
+ *
+ * 为什么要分三层：
+ *   navigator.clipboard 要求「安全上下文 + 页面已聚焦」。
+ *   在 file:// 、局域网 IP、或焦点不在页面时它会直接抛错。
+ *   原来只试这一种，失败就退化成「帮你选中，自己按 Ctrl+C」，
+ *   用户看到的现象就是「点了没复制」。
+ *
+ *   第二层 execCommand('copy') 虽已废弃，但在上述场景下往往仍可用，
+ *   所以保留作兜底。
+ */
+async function copyToClipboard(text) {
+  // 第一层：现代剪贴板 API
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      /* 继续尝试下一层 */
+    }
   }
+
+  // 第二层：临时 textarea + execCommand
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    // 只读 + 移出视口：避免页面跳动和移动端弹出键盘
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (ok) return true;
+  } catch {
+    /* 落到第三层 */
+  }
+
+  return false;
+}
+
+/** 复制都失败时：帮用户选中文本，提示按 Ctrl+C */
+function selectOutputText() {
+  const pre = $('#output-text');
+  const range = document.createRange();
+  range.selectNodeContents(pre);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  pre.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function doCopy(opts = {}) {
+  const list = usableRecords();
+  if (!list.length) {
+    if (!opts.silent) toast('没有可复制的记录');
+    return false;
+  }
+
+  if (await copyToClipboard(outputText())) {
+    toast(`已复制 ${list.length} 条到剪贴板，去志愿云后台直接粘贴`);
+    return true;
+  }
+
+  selectOutputText();
+  toast('浏览器不允许自动复制，已帮你选中，按 Ctrl+C 即可', 3600);
+  return false;
 }
 
 // 顶部与底部两个复制按钮共用同一逻辑
 ['#btn-copy', '#btn-copy-top'].forEach((sel) => {
   const el = $(sel);
-  if (el) el.addEventListener('click', doCopy);
+  if (el) el.addEventListener('click', () => doCopy());
 });
 
 function downloadText(filename, text) {

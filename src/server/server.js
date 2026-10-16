@@ -51,12 +51,21 @@ const PORT = Number(process.env.PORT || 5180);
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  // .mjs 必须显式声明为 JavaScript。
+  // 浏览器对 module script 做严格 MIME 检查，若返回
+  // application/octet-stream 会被直接拒绝：
+  //   "Expected a JavaScript-or-Wasm module script but the server responded
+  //    with a MIME type of application/octet-stream"
+  // 表现是本地网页的本地实现加载失败、静默退回 HTTP 模式。
+  // vendor/xlsx.mjs 正是这种情况（线上 GitHub Pages 的 .mjs 是对的）。
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
 /** 读取请求体（限制大小，防内存爆） */

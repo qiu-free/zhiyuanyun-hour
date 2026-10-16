@@ -335,6 +335,32 @@ console.log('\n=== 14. 安全：目录穿越应被拒 ===');
   check(res.status === 404 || res.status === 403 || !txt.includes('"name"'), '无法读取上级文件');
 }
 
+console.log('\n=== 15. 静态文件的 MIME 类型（真故障回归）===');
+{
+  // 浏览器对 module script 做严格 MIME 检查。
+  // 曾经 .mjs 没在 MIME 表里，被当成 application/octet-stream，
+  // 于是 vendor/xlsx.mjs 加载被拒 → 本地实现失效 → 静默退回 HTTP。
+  // 在本地服务上表现为「点了没反应」。
+  const need = [
+    ['/vendor/xlsx.mjs', 'javascript', 'xlsx 库（module script）'],
+    ['/vendor/xlsx-default.js', 'javascript', '默认导出垫片'],
+    ['/web/localApi.js', 'javascript', '浏览器端实现'],
+    ['/web/app.js', 'javascript', '主脚本'],
+    ['/web/style.css', 'css', '样式'],
+  ];
+  for (const [p, want, label] of need) {
+    const res = await fetch(BASE + p);
+    const ct = res.headers.get('content-type') || '';
+    check(res.status === 200, `${label} 可访问（HTTP ${res.status}）`);
+    check(ct.includes(want), `${label} MIME 正确（${ct}）`);
+    // 关键：module script 绝不能是 octet-stream
+    check(!ct.includes('octet-stream'), `${label} 不是 octet-stream`);
+  }
+  // index.html 里的 importmap 必须指向垫片（垫片提供 default）
+  const html = await (await fetch(BASE + '/')).text();
+  check(html.includes('"xlsx": "./vendor/xlsx-default.js"'), 'importmap 指向垫片');
+}
+
 console.log('');
 console.log(`共 ${pass + fail} 项：通过 ${pass}，失败 ${fail}`);
 process.exit(fail ? 1 : 0);

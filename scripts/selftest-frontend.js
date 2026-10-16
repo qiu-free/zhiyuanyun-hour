@@ -261,6 +261,13 @@ check(js.includes('downloadText') && js.includes('new Blob'), '.txt 由前端本
 check(!js.includes('/api/export/txt'), '未调用不存在的 /api/export/txt（应由前端生成）');
 check(js.includes('/api/schedule'), '调用排期接口');
 check(js.includes('navigator.clipboard'), '有一键复制');
+// 复制要多层兜底：navigator.clipboard 在非安全上下文 / 未聚焦时会抛错，
+// 缺了 execCommand 这一层，用户看到的就是「点了没复制」
+check(js.includes('execCommand'), '复制有 execCommand 兜底');
+check(js.includes('isSecureContext'), '只在安全上下文用剪贴板 API');
+check(js.includes('copyToClipboard'), '复制逻辑已抽成独立函数');
+// 处理完自动复制：这个工具的出口就是把文本贴到志愿云后台
+check(/doCopy\(\{\s*silent:\s*true\s*\}\)/.test(js), '处理完成后自动复制到剪贴板');
 check(js.includes('FileReader'), '有文件读取');
 check(js.includes('renderBatchPanel'), '有分批面板渲染');
 check(js.includes('renderMultiPanel'), '有换项目分流面板渲染');
