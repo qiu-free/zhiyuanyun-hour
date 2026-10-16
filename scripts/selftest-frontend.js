@@ -268,6 +268,33 @@ check(js.includes('isSecureContext'), '只在安全上下文用剪贴板 API');
 check(js.includes('copyToClipboard'), '复制逻辑已抽成独立函数');
 // 处理完自动复制：这个工具的出口就是把文本贴到志愿云后台
 check(/doCopy\(\{\s*silent:\s*true\s*\}\)/.test(js), '处理完成后自动复制到剪贴板');
+
+// 所有复制入口都必须走统一函数。
+// 这条是真故障回归：分批面板和换项目面板的「复制」按钮原来各自
+// 直接调 navigator.clipboard，没有兜底、失败也不选中文本，
+// 用户点了只看到「复制失败，请手动选中文本复制」，什么都拿不到。
+{
+  // 去掉注释再检查，避免把说明文字里的提及算进来
+  const code = js.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  // copyToClipboard 内部本身有两处：一次能力判断、一次 writeText。
+  // 所以按「出现的行是否都在该函数内」判断，而不是数总次数。
+  const fnStart = code.indexOf('async function copyToClipboard');
+  const fnEnd = code.indexOf('\n}', fnStart);
+  const inside = code.slice(fnStart, fnEnd);
+  const outside = code.slice(0, fnStart) + code.slice(fnEnd);
+  check(fnStart > 0 && fnEnd > fnStart, '能找到 copyToClipboard 函数体');
+  check(!/navigator\.clipboard/.test(outside),
+    'copyToClipboard 之外没有任何地方直接调剪贴板 API');
+  check(/navigator\.clipboard/.test(inside), 'copyToClipboard 内部用剪贴板 API');
+  check(code.includes('copyFromElement'), '分组/分批复制走 copyFromElement');
+  const fromEl = (code.match(/copyFromElement\(/g) || []).length;
+  check(fromEl >= 3, `copyFromElement 定义 + 两处调用（实际 ${fromEl} 次）`);
+  check(!/data-copy-group[\s\S]{0,220}?navigator\.clipboard/.test(code),
+    '分组复制按钮不再直接调剪贴板');
+  check(!/data-copy-round[\s\S]{0,220}?navigator\.clipboard/.test(code),
+    '分批复制按钮不再直接调剪贴板');
+  check(code.includes('selectNode'), '复制失败时能选中对应区块（可 Ctrl+C）');
+}
 check(js.includes('FileReader'), '有文件读取');
 check(js.includes('renderBatchPanel'), '有分批面板渲染');
 check(js.includes('renderMultiPanel'), '有换项目分流面板渲染');

@@ -927,15 +927,19 @@ async function copyToClipboard(text) {
   return false;
 }
 
-/** 复制都失败时：帮用户选中文本，提示按 Ctrl+C */
-function selectOutputText() {
-  const pre = $('#output-text');
-  const range = document.createRange();
-  range.selectNodeContents(pre);
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
-  pre.scrollIntoView({ behavior: 'smooth', block: 'center' });
+/** 复制都失败时：帮用户选中某段文本，提示按 Ctrl+C */
+function selectNode(node) {
+  if (!node) return;
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch {
+    /* 选中失败不致命，用户仍可手动拖选 */
+  }
 }
 
 async function doCopy(opts = {}) {
@@ -950,8 +954,39 @@ async function doCopy(opts = {}) {
     return true;
   }
 
-  selectOutputText();
+  selectNode($('#output-text'));
   toast('浏览器不允许自动复制，已帮你选中，按 Ctrl+C 即可', 3600);
+  return false;
+}
+
+/**
+ * 复制页面上某个元素里的文本（分批面板、换项目面板的「复制」按钮都用它）。
+ *
+ * 为什么要统一走这里：这两个面板原来各自直接调 navigator.clipboard，
+ * 没有 execCommand 兜底，也没有「失败就帮你选中」的退路 ——
+ * 复制失败时只弹一句提示，用户什么也拿不到，看起来就是按钮坏了。
+ *
+ * @param {Element} el    要复制的元素
+ * @param {string}  label 提示里用的名称，如「项目 2」「第 1 轮」
+ * @param {string}  unit  数量单位，如「项」「人」
+ */
+async function copyFromElement(el, label, unit) {
+  if (!el) return false;
+  const text = el.textContent || '';
+  if (!text.trim()) {
+    toast('这里没有可复制的内容');
+    return false;
+  }
+
+  const count = text.trim().split('\n').length;
+  if (await copyToClipboard(text)) {
+    toast(`已复制${label}的内容（${count} ${unit}）`);
+    return true;
+  }
+
+  // 兜底：把这一块选中，用户按 Ctrl+C 就行
+  selectNode(el);
+  toast(`浏览器不允许自动复制，已帮你选中${label}，按 Ctrl+C 即可`, 3800);
   return false;
 }
 
@@ -1246,15 +1281,13 @@ function renderMultiPanel() {
     body.innerHTML = out.join('');
 
     body.querySelectorAll('[data-copy-group]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', () => {
         const n = btn.dataset.copyGroup;
-        const text = body.querySelector(`[data-group-text="${n}"]`).textContent;
-        try {
-          await navigator.clipboard.writeText(text);
-          toast(`已复制「项目 ${n}」的内容（${text.split('\n').length} 项）`);
-        } catch {
-          toast('复制失败，请手动选中复制', 3200);
-        }
+        const el = body.querySelector(`[data-group-text="${n}"]`);
+        // 复用统一的复制逻辑（三层兜底 + 失败时帮你选中），
+        // 不要在这里直接调 navigator.clipboard —— 那会漏掉兜底，
+        // 失败后只弹个提示、什么都不复制，用户会以为按钮坏了。
+        copyFromElement(el, `「项目 ${n}」`, '项');
       });
     });
   }
@@ -1484,15 +1517,11 @@ function renderBatchPanel() {
 
   // 逐轮复制
   box.querySelectorAll('[data-copy-round]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', () => {
       const n = btn.dataset.copyRound;
-      const text = box.querySelector(`[data-round-text="${n}"]`).textContent;
-      try {
-        await navigator.clipboard.writeText(text);
-        toast(`已复制第 ${n} 轮的文本（${text.split('\n').length} 人）`);
-      } catch {
-        toast('复制失败，请手动选中文本复制', 3200);
-      }
+      const el = box.querySelector(`[data-round-text="${n}"]`);
+      // 同上：走统一的 copyFromElement，别直接调剪贴板 API
+      copyFromElement(el, `第 ${n} 轮`, '人');
     });
   });
 
