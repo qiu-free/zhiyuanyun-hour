@@ -124,6 +124,30 @@ for (const ref of refs) {
   console.log(`  ${ok ? '✓' : '✗'} ${ref}`);
 }
 
+// ---------- 7b. 自检：产物必须是「应用页面」，不能是 README ----------
+// 这条是为了防止一种真实故障：GitHub Pages 若用「Deploy from a branch」
+// 部署仓库根目录，会把 README.md 渲染成首页 —— 打开看到的是说明文档，
+// 不是能用的工具。这里直接检查几个只有界面才有的标记。
+console.log('\n自检：index.html 是不是界面（而不是文档）…');
+const APP_MARKERS = [
+  ['id="btn-parse"', '处理按钮'],
+  ['id="text-input"', '文本输入框'],
+  ['id="result-table"', '结果表格'],
+  ['id="sec-result"', '结果区块'],
+  ['<script src="./web/app.js">', '脚本引用'],
+];
+let notApp = 0;
+for (const [marker, label] of APP_MARKERS) {
+  const ok = html.includes(marker);
+  if (!ok) notApp++;
+  console.log(`  ${ok ? '✓' : '✗'} ${label}（${marker}）`);
+}
+// 反向确认：不能是 Markdown 渲染出来的文档
+if (/^#\s|\|.*\|.*\|/m.test(html.slice(0, 500)) || html.includes('npm run paste')) {
+  notApp++;
+  console.log('  ✗ 内容看起来是 README/文档，不是应用界面');
+}
+
 // ---------- 8. 自检：模块的 import 链是否都能解析 ----------
 console.log('\n自检：模块 import 链…');
 const seen = new Set();
@@ -152,7 +176,7 @@ while (queue.length) {
 }
 console.log(`  检查 ${importsChecked} 个相对 import，失败 ${importsBad} 个`);
 
-if (bad || importsBad || nodeDeps) {
+if (bad || importsBad || nodeDeps || notApp) {
   console.error('\n✗ 构建自检未通过');
   process.exit(1);
 }

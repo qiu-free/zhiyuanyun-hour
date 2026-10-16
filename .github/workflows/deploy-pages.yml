@@ -1,11 +1,11 @@
 name: 部署网站到 GitHub Pages
 
 # 每次推送到 main 就自动构建并发布。
-# 你不需要在本地做任何事 —— 改完推送，一两分钟后线上就更新了。
+# 改完推送，一两分钟后线上就更新了，不需要在本地做任何事。
 on:
   push:
     branches: [main]
-  # 也可以在 Actions 页面手动触发
+  # 也可以不用推送，直接在 Actions 页面点「Run workflow」手动触发
   workflow_dispatch:
 
 # GitHub Pages 需要的权限
@@ -32,22 +32,43 @@ jobs:
           node-version: '20'
 
       - name: 安装依赖
-        # 只需要 xlsx 一个包；用 npm ci 会依赖 lockfile 与 npm 的兼容性，
-        # 这里直接 install 更稳
         run: npm install --no-audit --no-fund
 
-      - name: 跑自检
-        # 线上部署前先自检，避免把坏掉的版本推上去
+      - name: 自检（不通过就不部署）
         run: |
+          echo "::group::文本解析"
           node scripts/selftest-parseText.js
+          echo "::endgroup::"
+          echo "::group::多人拆分"
           node scripts/selftest-split.js
+          echo "::endgroup::"
+          echo "::group::时间锁"
           node scripts/selftest-schedule.js
+          echo "::endgroup::"
+          echo "::group::多项目分流"
           node scripts/selftest-multiproject.js
+          echo "::endgroup::"
+          echo "::group::静态站点（前后端一致性）"
           node scripts/selftest-static.js
+          echo "::endgroup::"
+          echo "::group::Excel 读写"
           node scripts/selftest-excel.js
+          echo "::endgroup::"
 
       - name: 构建静态网站
+        # 这一步内部会自检：
+        #   · index.html 引用的文件是否都存在
+        #   · core/ 里有没有依赖 node: 内置模块（浏览器会加载失败）
+        #   · 产物确实是应用界面，而不是 README
         run: node scripts/build-site.js
+
+      - name: 确认产物内容
+        run: |
+          echo "dist/ 目录内容："
+          find dist -type f | sort
+          echo ""
+          echo "index.html 前几行："
+          head -c 400 dist/index.html
 
       - name: 上传产物
         uses: actions/upload-pages-artifact@v3
@@ -64,3 +85,6 @@ jobs:
       - name: 发布到 GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: 完成
+        run: echo "网站已发布：${{ steps.deployment.outputs.page_url }}"
