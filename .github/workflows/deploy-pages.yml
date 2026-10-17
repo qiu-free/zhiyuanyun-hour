@@ -42,6 +42,9 @@ jobs:
           echo "::group::多人拆分"
           node scripts/selftest-split.js
           echo "::endgroup::"
+          echo "::group::重复检测"
+          node scripts/selftest-duplicates.js
+          echo "::endgroup::"
           echo "::group::时间锁"
           node scripts/selftest-schedule.js
           echo "::endgroup::"

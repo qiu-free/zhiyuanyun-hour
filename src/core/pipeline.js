@@ -198,6 +198,134 @@ export function renderLine(rec) {
 // 各接口的纯逻辑实现
 // ============================================================
 
+/**
+ * 找出重复的人。
+ *
+ * 为什么必须在「出粘贴文本之前」拦住：
+ *   同一个身份证号在一份名单里出现两次，粘到后台就会给同一人录两次时长。
+ *   这不会报错——后台会照单全收，结果是这个人的时长凭空翻倍，
+ *   而且录进去之后改起来很麻烦。所以宁可拦下来让用户确认。
+ *
+ * 只把「后出现的那些」标成不可用，第一份保留可用：
+ *   · 用户大多是想录一次，第一份通常是对的
+ *   · 全部标红会让人以为整批都不能用
+ *   · 界面上会明确指出「与第 X 行重复」，用户自己删掉多余那行即可
+ *
+ * @param {Array} records normalizeRecord 产出的记录
+ * @returns {{records: Array, duplicates: Array}}
+ */
+export function markDuplicates(records) {
+  /** 身份证号 → 第一次出现的记录 */
+  const seenIdCard = new Map();
+  /** 姓名 → 出现过的记录（用于同名不同证的重名提醒） */
+  const byName = new Map();
+  /** 完全相同的行（姓名+证号+时长+备注）→ 高度可疑 */
+  const seenExact = new Map();
+
+  const duplicates = [];
+
+  for (const r of records) {
+    // ---------- 同一身份证号出现多次 ----------
+    if (r.idCard && !/\*/.test(r.idCard)) {
+      const first = seenIdCard.get(r.idCard);
+      if (first) {
+        // 附到记录上，界面可以标红并说明和哪一行重了
+        r.duplicateOf = first.lineNo ?? null;
+        r.duplicateKind = 'idCard';
+        r.problems.push({
+          field: 'idCard',
+          level: 'error',
+          message: `与第 ${first.lineNo ?? '?'} 行是同一人（身份证号相同），重复录入会让时长翻倍`,
+        });
+        // 重新计算状态：重复属于 error，必须不可用
+        r.status = 'error';
+        r.usable = false;
+        duplicates.push({
+          kind: 'idCard',
+          idCard: r.idCard,
+          name: r.name,
+          lineNo: r.lineNo,
+          firstLineNo: first.lineNo ?? null,
+        });
+      } else {
+        seenIdCard.set(r.idCard, r);
+      }
+    }
+
+    // ---------- 姓名的重名情况（不同身份证号）----------
+    if (r.name) {
+      if (!byName.has(r.name)) byName.set(r.name, []);
+      byName.get(r.name).push(r);
+    }
+
+    // ---------- 完全相同的行 ----------
+    // 姓名+证号+时长+备注全一样，基本是复制粘贴时重复了。
+    // 证号相同的上面已经处理过，这里主要防「同一人同一条录了两遍」被当成两条不同数据。
+    if (r.name && r.idCard && r.hours !== null && r.hours !== undefined) {
+      const key = [r.name, r.idCard, r.hours, r.remark].join('\u0001');
+      const first = seenExact.get(key);
+      if (first && !r.duplicateOf) {
+        r.duplicateOf = first.lineNo ?? null;
+        r.duplicateKind = 'exact';
+        r.problems.push({
+          field: 'name',
+          level: 'error',
+          message: `与第 ${first.lineNo ?? '?'} 行完全相同（姓名、证号、时长、备注都一样）`,
+        });
+        r.status = 'error';
+        r.usable = false;
+        duplicates.push({
+          kind: 'exact',
+          name: r.name,
+          idCard: r.idCard,
+          lineNo: r.lineNo,
+          firstLineNo: first.lineNo ?? null,
+        });
+      } else if (!first) {
+        seenExact.set(key, r);
+      }
+    }
+  }
+
+  // ---------- 同名但不同证号：不是错误，但要提醒 ----------
+  // 重名很常见（尤其同名同姓的同学），靠姓名匹配会录错人，
+  // 所以这里只提醒「确认是靠身份证号区分的」，不拦。
+  const sameNameWarnings = [];
+  for (const [name, list] of byName) {
+    const distinctIds = new Set(list.map((r) => r.idCard).filter((v) => v && !/\*/.test(v)));
+    if (distinctIds.size > 1) {
+      const rows = list.map((r) => `第 ${r.lineNo ?? '?'} 行（${r.idCardMasked || '无证号'}）`).join('、');
+      for (const r of list) {
+        if (r.usable) {
+          r.problems.push({
+            field: 'name',
+            level: 'warn',
+            message: `姓名「${name}」对应 ${distinctIds.size} 个不同身份证号（${rows}），已按证号区分，请确认`,
+          });
+          if (r.status === 'ok') r.status = 'warn';
+        }
+      }
+      sameNameWarnings.push({
+        name,
+        count: distinctIds.size,
+        rows,
+        message: `姓名「${name}」对应 ${distinctIds.size} 个不同身份证号，请确认不是录错人`,
+      });
+    }
+  }
+
+  return { records, duplicates, sameNameWarnings };
+}
+
+/**
+ * 把重复检测应用到结果上，并刷新汇总。
+ * parseTextResult / tableToRecords 都走这里，保证两条入口行为一致。
+ */
+function applyDuplicates(records) {
+  const { duplicates, sameNameWarnings } = markDuplicates(records);
+  return { records, duplicates, sameNameWarnings, summary: summarize(records) };
+}
+
 /** 文本 → 记录列表 */
 export function parseTextResult({ text = '', reason = '' } = {}) {
   if (typeof text !== 'string') throw new Error('text 必须是字符串');
@@ -206,7 +334,7 @@ export function parseTextResult({ text = '', reason = '' } = {}) {
   const globalRemark = guessGlobalRemark(text);
   const fallback = String(reason).trim() || globalRemark;
 
-  const records = parsed.records.map((r, i) =>
+  const raw = parsed.records.map((r, i) =>
     normalizeRecord(
       {
         id: `r${i}`,
@@ -229,21 +357,25 @@ export function parseTextResult({ text = '', reason = '' } = {}) {
     )
   );
 
+  const applied = applyDuplicates(raw);
+
   return {
-    records,
+    records: applied.records,
     skipped: parsed.skipped,
     warnings: parsed.warnings,
     // 哪些行没有换行、被自动拆成了几人
     splitLines: parsed.splitLines,
     guessedRemark: globalRemark,
-    summary: summarize(records),
+    duplicates: applied.duplicates,
+    sameNameWarnings: applied.sameNameWarnings,
+    summary: applied.summary,
   };
 }
 
 /** 已解析的表格 → 记录列表（readTable / readTableFromBuffer 的输出都能用） */
 export function tableToRecords({ table, reason = '' } = {}) {
   const fallback = String(reason).trim();
-  const records = table.rows.map((row, i) =>
+  const raw = table.rows.map((row, i) =>
     normalizeRecord(
       {
         id: `r${i}`,
@@ -259,14 +391,18 @@ export function tableToRecords({ table, reason = '' } = {}) {
     )
   );
 
+  const applied = applyDuplicates(raw);
+
   return {
-    records,
+    records: applied.records,
     sheetName: table.sheetName,
     sheetNames: table.sheetNames,
     mapping: table.mapping,
     headers: table.headers,
     missingColumns: table.missing,
-    summary: summarize(records),
+    duplicates: applied.duplicates,
+    sameNameWarnings: applied.sameNameWarnings,
+    summary: applied.summary,
   };
 }
 

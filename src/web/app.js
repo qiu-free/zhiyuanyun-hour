@@ -292,6 +292,10 @@ $('#btn-parse').addEventListener('click', async () => {
     state.skipped = data.skipped || [];
     state.warnings = data.warnings || [];
     state.splitLines = data.splitLines || [];
+    // 重复检测结果：后端（core/pipeline.js）算好并挂在记录上，
+    // 这里只负责展示。重复的行已经被标成不可用，不会进粘贴文本。
+    state.duplicates = data.duplicates || [];
+    state.sameNameWarnings = data.sameNameWarnings || [];
     state.summary = data.summary || null;
     state.guessedRemark = data.guessedRemark || '';
     state.schedule = null;
@@ -310,6 +314,15 @@ $('#btn-parse').addEventListener('click', async () => {
     if (state.splitLines.length) {
       const people = state.splitLines.reduce((s, x) => s + x.count, 0);
       toast(`有 ${state.splitLines.length} 行没有换行，已自动拆成 ${people} 人`, 3600);
+    }
+
+    // 有重复的人：这条必须让用户看见，否则不知不觉就少录了一个人
+    // （重复行被排除，看起来"处理成功"，但实际可用条数比预期少）
+    if (state.duplicates.length) {
+      const names = state.duplicates.map((d) => d.name || `第${d.lineNo}行`).join('、');
+      toast(`⚠️ 发现 ${state.duplicates.length} 条重复（${names}），已自动排除`, 5200);
+    } else if (state.sameNameWarnings.length) {
+      toast(`有 ${state.sameNameWarnings.length} 个重名的情况，请看下方提醒`, 4200);
     }
 
     // 若文本里自带「补录原因」且用户没填，自动带入
@@ -383,6 +396,20 @@ function checkRecord(rec) {
         problems.push({ field: 'idCard', level: 'error', message: `校验位错误（应为 ${exp}）` });
       }
     }
+  }
+
+  // ---------- 重复 ----------
+  // 这一项由后端（core/pipeline.js 的 markDuplicates）算出来并挂在记录上。
+  // 前端重算状态时必须原样保留，否则 renderAll() 一跑就把重复标记冲掉了，
+  // 重复的人会重新变成「可用」，粘到后台就给同一人录两次时长。
+  if (rec.duplicateOf !== null && rec.duplicateOf !== undefined) {
+    problems.push({
+      field: 'idCard',
+      level: 'error',
+      message: rec.duplicateKind === 'exact'
+        ? `与第 ${rec.duplicateOf} 行完全相同，重复录入会让时长翻倍`
+        : `与第 ${rec.duplicateOf} 行是同一人（身份证号相同），重复录入会让时长翻倍`,
+    });
   }
 
   const h = rec.hours;
@@ -566,6 +593,39 @@ function renderNotices() {
         <p>${esc(lines)}</p>
         <p><strong>请核对下表人名和时长是否对应正确</strong>——
            拆分靠身份证号定位，如果原文没有分隔清楚，可能配错。改完再导出。</p>
+      </div>`);
+  }
+
+  // 重复的人：这是最需要拦住的一类问题。
+  // 同一身份证号录两次，后台不会报错，但那个人的时长会凭空翻倍，
+  // 而且录进去之后改起来很麻烦。所以放在最前面、用红色。
+  if (state.duplicates && state.duplicates.length) {
+    const rows = state.duplicates
+      .map((d) => `第 ${d.lineNo} 行「${d.name || '（无姓名）'}」与第 ${d.firstLineNo ?? '?'} 行重复`)
+      .join('；');
+    parts.push(`
+      <div class="notice notice-error">
+        <h4>⛔ 检测到 ${state.duplicates.length} 条重复的人</h4>
+        <p>${esc(rows)}</p>
+        <p><strong>这些行已自动排除</strong>，不会出现在导出的粘贴文本里 ——
+           否则同一个人会被录两次，时长直接翻倍。</p>
+        <p class="notice-sub">处理办法：回到上表删掉多余的那一行（点右侧「删除」），
+           或者在原始表格/文本里删掉后再处理一次。保留的那一份默认是第一次出现的。</p>
+      </div>`);
+  }
+
+  // 同名但不同身份证号：不是错误，但很容易录错人，提醒核对
+  if (state.sameNameWarnings && state.sameNameWarnings.length) {
+    const rows = state.sameNameWarnings
+      .map((w) => `「${w.name}」对应 ${w.count} 个不同身份证号（${w.rows}）`)
+      .join('；');
+    parts.push(`
+      <div class="notice notice-warn">
+        <h4>👥 有同名志愿者</h4>
+        <p>${esc(rows)}</p>
+        <p>系统按「姓名 + 身份证号」匹配人，同名不会串号。</p>
+        <p class="notice-sub">但这几行请核对一遍：确认每个人配的身份证号是对的，
+           别把 A 的时长记到同名的 B 头上。</p>
       </div>`);
   }
 
@@ -1694,6 +1754,8 @@ $('#btn-reset')?.addEventListener('click', async () => {
   state.skipped = [];
   state.warnings = [];
   state.splitLines = [];
+  state.duplicates = [];
+  state.sameNameWarnings = [];
   state.summary = null;
   state.guessedRemark = '';
   state.sourceLabel = '';

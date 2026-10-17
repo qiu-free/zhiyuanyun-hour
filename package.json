@@ -18,7 +18,7 @@
     "template": "node src/cli/template.js",
     "sample": "node scripts/make-sample.js",
     "privacy": "node scripts/check-privacy.js",
-    "test": "node scripts/check-privacy.js && node scripts/selftest-excel.js && node scripts/selftest-parseText.js && node scripts/selftest-split.js && node scripts/selftest-paste.js && node scripts/selftest-schedule.js && node scripts/selftest-multiproject.js && node scripts/selftest-static.js && node scripts/selftest-frontend.js && node scripts/selftest-pageload.js",
+    "test": "node scripts/check-privacy.js && node scripts/selftest-excel.js && node scripts/selftest-parseText.js && node scripts/selftest-split.js && node scripts/selftest-duplicates.js && node scripts/selftest-paste.js && node scripts/selftest-schedule.js && node scripts/selftest-multiproject.js && node scripts/selftest-static.js && node scripts/selftest-frontend.js && node scripts/selftest-pageload.js",
     "test:web": "node scripts/selftest-web.js"
   },
   "dependencies": {
